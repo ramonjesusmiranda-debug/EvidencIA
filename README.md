@@ -31,3 +31,11 @@ El verificador se aplica igual; con modelos pequeños espera más frases omitida
 - **Filtro de datos identificativos** (`backend/app/phi.py`): DNI/NIE, correo, teléfono, fechas completas, nº de historia y nombres tras paciente/Sr./Sra./D./Dña. Se aplica antes de cualquier llamada a un LLM o a PubMed y no se registra la pregunta. Es heurístico: no detecta nombres sin indicador.
 - **Historial local:** archivos JSON privados de la app (`filesDir/history`), excluidos de copia en la nube y de la transferencia entre dispositivos; se puede desactivar y borrar desde Ajustes.
 - `scripts/smoke.py` incluye un par de seguimiento que imprime la pregunta reescrita.
+
+## APK firmado (release)
+El CI compila el APK de **depuración** por defecto. Para producir un APK de **release firmado** (y publicarlo en GitHub Releases al crear una etiqueta `v*`), genera tu clave **en tu equipo** y guárdala; si la pierdes no podrás publicar actualizaciones de la misma app:
+```bash
+keytool -genkeypair -v -keystore evidencia.jks -alias evidencia -keyalg RSA -keysize 2048 -validity 10000
+```
+Añade los secretos al repositorio (`Settings → Secrets and variables → Actions`, o con `gh secret set`):
+`EVIDENCIA_KEYSTORE_BASE64` (`base64 -w0 evidencia.jks`), `EVIDENCIA_KEYSTORE_PASSWORD`, `EVIDENCIA_KEY_ALIAS`, `EVIDENCIA_KEY_PASSWORD`. Con ellos el flujo ejecuta `assembleRelease`, verifica la firma con `apksigner` y sube el APK. Nunca subas el `.jks` al repositorio (está en `.gitignore`).

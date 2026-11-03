@@ -1,24 +1,54 @@
 name: build
-on: [push, pull_request]
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
 
 jobs:
   backend:
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: backend } }
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with: { python-version: "3.13", cache: pip, cache-dependency-path: backend/requirements.txt }
       - run: pip install -r requirements.txt
       - run: python -m pytest -q
 
   android:
     runs-on: ubuntu-latest
-    defaults: { run: { working-directory: android } }
+    permissions: { contents: write }
+    env:
+      KEYSTORE_B64: ${{ secrets.EVIDENCIA_KEYSTORE_BASE64 }}
+      EVIDENCIA_KEYSTORE_PASSWORD: ${{ secrets.EVIDENCIA_KEYSTORE_PASSWORD }}
+      EVIDENCIA_KEY_ALIAS: ${{ secrets.EVIDENCIA_KEY_ALIAS }}
+      EVIDENCIA_KEY_PASSWORD: ${{ secrets.EVIDENCIA_KEY_PASSWORD }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
         with: { distribution: temurin, java-version: "17" }
-      - run: chmod +x gradlew && ./gradlew assembleDebug --stacktrace
-      - uses: actions/upload-artifact@v4
-        with: { name: evidencia-debug-apk, path: android/app/build/outputs/apk/debug/*.apk }
+      - name: Preparar clave de firma (si existe)
+        if: env.KEYSTORE_B64 != ''
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/evidencia.jks"
+          echo "EVIDENCIA_KEYSTORE_FILE=$RUNNER_TEMP/evidencia.jks" >> "$GITHUB_ENV"
+      - name: Compilar
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          if [ -n "$KEYSTORE_B64" ]; then ./gradlew assembleRelease --stacktrace; else ./gradlew assembleDebug --stacktrace; fi
+      - name: Verificar firma del APK de release
+        if: env.KEYSTORE_B64 != ''
+        run: |
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          "$APKSIGNER" verify --print-certs android/app/build/outputs/apk/release/*.apk
+      - uses: actions/upload-artifact@v5
+        with:
+          name: evidencia-apk
+          path: android/app/build/outputs/apk/**/*.apk
+      - name: Publicar en GitHub Releases (solo etiquetas v*)
+        if: startsWith(github.ref, 'refs/tags/v') && env.KEYSTORE_B64 != ''
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: gh release create "$GITHUB_REF_NAME" android/app/build/outputs/apk/release/*.apk --title "EvidencIA $GITHUB_REF_NAME" --generate-notes
